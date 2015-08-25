@@ -153,10 +153,10 @@ class Session(object):
     """
 
     def __init__(self, username, password, project_id, auth_url,
-                 endpoint_type="publicURL", region_name=None, insecure=False):
+                 endpoint_type="publicURL", region_name=None, insecure=False, **kwargs):
         client = keystone_client.Client(
             username=username, password=password, tenant_id=project_id,
-            auth_url=auth_url, region_name=region_name, insecure=insecure)
+            auth_url=auth_url, region_name=region_name, insecure=insecure, **kwargs)
         # Storing username, password, project_id and auth_url for
         # use by clients libraries that cannot use an existing token.
         self.username = username
@@ -165,6 +165,9 @@ class Session(object):
         self.auth_url = auth_url
         self.region_name = region_name
         self.insecure = insecure
+        self.domain_name = kwargs.get('domain_name', None)
+        self.user_domain_name = kwargs.get('user_domain_name', None)
+
         # Session variables to be used by clients when possible
         self.token = client.auth_token
         self.user_id = client.user_id
@@ -810,6 +813,12 @@ def parse_args():
                         envvar='OS_PASSWORD', required=True,
                         help="The user's password. Defaults "
                              "to env[OS_PASSWORD].")
+    parser.add_argument("--user-domain-name", action=EnvDefault,
+                        envvar='OS_USER_DOMAIN_NAME', required=True,
+                        default='default', help="Keystone v3 Domain Name")
+    parser.add_argument("--domain-name", action=EnvDefault,
+                        envvar='OS_DOMAIN_NAME', required=True,
+                        default='default', help="Keystone v3 Domain Name")
     parser.add_argument("--admin-project", action=EnvDefault,
                         envvar='OS_TENANT_NAME', required=True,
                         help="Project name used for authentication. This project "
@@ -856,7 +865,8 @@ def main():
     try:
         keystone_manager = KeystoneManager(args.username, args.password,
                                            args.admin_project, args.auth_url,
-                                           args.insecure, region_name=args.region_name)
+                                           args.insecure, region_name=args.region_name,
+                                           domain_name=args.domain_name, user_domain_name=args.user_domain_name)
     except api_exceptions.Unauthorized as exc:
         print("Authentication failed: {}".format(str(exc)))
         sys.exit(AUTHENTICATION_FAILED_ERROR_CODE)
