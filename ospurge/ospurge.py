@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 #
 # This software is released under the MIT License.
@@ -39,7 +39,7 @@ from heatclient import client as heat_client
 import heatclient.openstack.common.apiclient.exceptions
 from keystoneclient.apiclient import exceptions as api_exceptions
 import keystoneclient.openstack.common.apiclient.exceptions
-from keystoneclient.v2_0 import client as keystone_client
+from keystoneclient.v3 import client as keystone_client
 import neutronclient.common.exceptions
 from neutronclient.v2_0 import client as neutron_client
 import novaclient.exceptions
@@ -155,7 +155,7 @@ class Session(object):
     def __init__(self, username, password, project_id, auth_url,
                  endpoint_type="publicURL", region_name=None, insecure=False, **kwargs):
         client = keystone_client.Client(
-            username=username, password=password, tenant_id=project_id,
+            username=username, password=password,
             auth_url=auth_url, region_name=region_name, insecure=insecure, **kwargs)
         # Storing username, password, project_id and auth_url for
         # use by clients libraries that cannot use an existing token.
@@ -656,10 +656,9 @@ class KeystoneManager(object):
 
     """Manages Keystone queries."""
 
-    def __init__(self, username, password, project, auth_url, insecure, **kwargs):
+    def __init__(self, username, password, auth_url, insecure, **kwargs):
         self.client = keystone_client.Client(
-            username=username, password=password,
-            tenant_name=project, auth_url=auth_url,
+            username=username, password=password, auth_url=auth_url,
             insecure=insecure, **kwargs)
         self.admin_role_id = None
         self.tenant_info = None
@@ -676,30 +675,30 @@ class KeystoneManager(object):
             return self.client.tenant_id
 
         try:
-            self.tenant_info = self.client.tenants.get(project_name_or_id)
+            self.tenant_info = self.client.projects.get(project_name_or_id)
             # If it doesn't raise an 404, project_name_or_id is
             # already the project's id
             project_id = project_name_or_id
         except api_exceptions.NotFound:
             try:
                 # Can raise api_exceptions.Forbidden:
-                tenants = self.client.tenants.list()
+                tenants = self.client.projects.list()
                 project_id = filter(
                     lambda x: x.name == project_name_or_id, tenants)[0].id
             except IndexError:
                 raise NoSuchProject(project_name_or_id)
 
         if not self.tenant_info:
-            self.tenant_info = self.client.tenants.get(project_id)
+            self.tenant_info = self.client.projects.get(project_id)
         return project_id
 
     def enable_project(self, project_id):
         logging.info("* Enabling project {}.".format(project_id))
-        self.tenant_info = self.client.tenants.update(project_id, enabled=True)
+        self.tenant_info = self.client.projects.update(project_id, enabled=True)
 
     def disable_project(self, project_id):
         logging.info("* Disabling project {}.".format(project_id))
-        self.tenant_info = self.client.tenants.update(project_id, enabled=False)
+        self.tenant_info = self.client.projects.update(project_id, enabled=False)
 
     def get_admin_role_id(self):
         if not self.admin_role_id:
@@ -725,7 +724,7 @@ class KeystoneManager(object):
 
     def delete_project(self, project_id):
         logging.info("* Deleting project {}.".format(project_id))
-        self.client.tenants.delete(project_id)
+        self.client.projects.delete(project_id)
 
 
 def perform_on_project(admin_name, password, project, auth_url,
@@ -864,8 +863,7 @@ def main():
 
     try:
         keystone_manager = KeystoneManager(args.username, args.password,
-                                           args.admin_project, args.auth_url,
-                                           args.insecure, region_name=args.region_name,
+                                           args.auth_url, args.insecure, region_name=args.region_name,
                                            domain_name=args.domain_name, user_domain_name=args.user_domain_name)
     except api_exceptions.Unauthorized as exc:
         print("Authentication failed: {}".format(str(exc)))
@@ -927,3 +925,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
