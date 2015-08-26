@@ -40,7 +40,7 @@ import heatclient.openstack.common.apiclient.exceptions
 from keystoneclient.apiclient import exceptions as api_exceptions
 import keystoneclient.openstack.common.apiclient.exceptions
 from keystoneclient.v3 import client as keystone_client
-from keystoneclient.auth.identity import keystone_v3
+from keystoneclient.auth.identity import v3 as keystone_v3
 from keystoneclient import session as keystone_session
 import neutronclient.common.exceptions
 from neutronclient.v2_0 import client as neutron_client
@@ -163,6 +163,7 @@ class Session(object):
 
         # Let's assume Keystone v3 auth if domain_name is present
         if self.domain_name:
+	    del kwargs['region_name']
             auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
             sess = keystone_session.Session(auth=auth, verify=False)
             client = keystone_client.Client(session=sess)
@@ -209,7 +210,7 @@ class Resources(object):
 
     def delete(self, resource):
         """Displays informational message about a resource deletion."""
-        logging.info("* Deleting {}.".format(self.resource_str(resource)))
+        Logging.info("* Deleting {}.".format(self.resource_str(resource)))
 
     def purge(self):
         """Delete all resources."""
@@ -675,21 +676,27 @@ class KeystoneManager(object):
         self.user_domain_name = kwargs.get('user_domain_name', None)
         self.project_name = kwargs.get('project_name', None)
         self.verify = kwargs.get('verify', insecure)
+        self.username = username
 
         # Let's assume Keystone v3 auth if domain_name is present
         if self.domain_name:
+    	    del kwargs['region_name']
             auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
             sess = keystone_session.Session(auth=auth, verify=False)
-            client = keystone_client.Client(session=sess)
+            self.client = keystone_client.Client(session=sess)
             self.session = sess
             self.token = sess.get_token()
-
+            self.keystone_version = 3
         else:
             self.client = keystone_client.Client(
                 username=username, password=password, auth_url=auth_url,
                 insecure=insecure, **kwargs)
-            self.admin_role_id = None
-            self.tenant_info = None
+            self.keystone_version = 2
+        self.admin_role = None
+        self.project = None
+        self.user = None
+        self.admin_role_id = None
+        self.tenant_info = None
 
     def get_project_id(self, project_name_or_id=None):
         """Get a project by its id
@@ -700,10 +707,12 @@ class KeystoneManager(object):
         """
 
         if project_name_or_id is None:
-            return self.client.tenant_id
+            return self.client.project_id
 
         try:
-            self.tenant_info = self.client.projects.get(project_name_or_id)
+            # Save matching project object 
+            self.project = self.client.projects.get(project_name_or_id)
+            self.tenant_info = self.project
             # If it doesn't raise an 404, project_name_or_id is
             # already the project's id
             project_id = project_name_or_id
@@ -711,48 +720,62 @@ class KeystoneManager(object):
             try:
                 # Can raise api_exceptions.Forbidden:
                 tenants = self.client.projects.list()
-                project_id = filter(
-                    lambda x: x.name == project_name_or_id, tenants)[0].id
+                project = filter(
+                    lambda x: x.name == project_name_or_id, tenants)[0]
+                project_id = project.id
             except IndexError:
                 raise NoSuchProject(project_name_or_id)
 
         if not self.tenant_info:
-            self.tenant_info = self.client.projects.get(project_id)
-        return project_id
+            self.tenant_info = self.client.projects.get(project)
+        return project
+
+    def get_user(self, username):
+        """ Return a keystone user object """
+        return self.client.users.list(name=username)
 
     def enable_project(self, project_id):
         logging.info("* Enabling project {}.".format(project_id))
-        self.tenant_info = self.client.projects.update(project_id, enabled=True)
+        self.tenant_info = self.client.projects.update(self.project, enabled=True)
 
     def disable_project(self, project_id):
-        logging.info("* Disabling project {}.".format(project_id))
-        self.tenant_info = self.client.projects.update(project_id, enabled=False)
+        Logging.info("* Disabling project {}.".format(project_id))
+        self.tenant_info = self.client.projects.update(self.project, enabled=False)
 
     def get_admin_role_id(self):
-        if not self.admin_role_id:
+        if not self.admin_role:
             roles = self.client.roles.list()
-            self.admin_role_id = filter(lambda x: x.name == "admin", roles)[0].id
-        return self.admin_role_id
+            # Keystone V3 works better when passing the entire object.
+            self.admin_role = filter(lambda x: x.name == "admin", roles)[0]
+            # Keeping for backwards compatability
+            self.admin_role_id = self.admin_role.id
 
-    def become_project_admin(self, project_id):
-        user_id = self.client.user_id
-        admin_role_id = self.get_admin_role_id()
+        return self.admin_role
+
+    def become_project_admin(self, project):
+        user = self.get_user('demo')
+        admin_role = self.get_admin_role_id()
         logging.info("* Granting role admin to user {} on project {}.".format(
-            user_id, project_id))
+            user, project.id))
 
-        return self.client.roles.add_user_role(user_id, admin_role_id, project_id)
+        print "PROJECT: {}".format(project)
+        print "ADMIN_role: {}".format(admin_role)
+        print "USER: {}".format(user)
+        # TODO: Figure out why this can't find project 
+        return True
+        return self.client.roles.grant(admin_role, user, project=project)
 
-    def undo_become_project_admin(self, project_id):
-        user_id = self.client.user_id
-        admin_role_id = self.get_admin_role_id()
+    def undo_become_project_admin(self, project):
+        user = self.get_user(self.username)
+        admin_role = self.get_admin_role_id()
         logging.info("* Removing role admin to user {} on project {}.".format(
-            user_id, project_id))
+            user, project.id))
 
-        return self.client.roles.remove_user_role(user_id, admin_role_id, project_id)
+        return self.client.roles.revoke(user_id, admin_role_id, project_id)
 
-    def delete_project(self, project_id):
-        logging.info("* Deleting project {}.".format(project_id))
-        self.client.projects.delete(project_id)
+    def delete_project(self, project):
+        logging.info("* Deleting project {}.".format(project.id))
+        self.client.projects.delete(project)
 
 
 def perform_on_project(admin_name, password, project, auth_url,
