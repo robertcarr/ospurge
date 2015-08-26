@@ -566,16 +566,10 @@ class NovaServers(Resources):
 
     def __init__(self, session):
         super(NovaServers, self).__init__(session)
-        nova_session = session(session.username, session.password, project='test',
-                                     user_domain_name='default', project_domain_name='default',
-                                     project_name='admin', auth_url='https://keystone:35357/v3', insecure=True)
+        nova_session = KeystoneManager(session.username, session.password, user_domain_name=session.domain_name, project_domain_name=session.domain_name,
+                                     project_name=session.project_name, auth_url=session.auth_url, insecure=True)
 
         self.client = nova_client.Client(session=nova_session.session)
-        #self.client = nova_client.Client(
-        #    session.username, session.password,
-        #    session.project_name, auth_url=session.auth_url,
-        #    endpoint_type=session.endpoint_type,
-        #    region_name=session.region_name, insecure=session.insecure)
         self.project_id = session.project_id
 
     """Manage nova resources"""
@@ -722,21 +716,19 @@ class KeystoneManager(object):
         """ Return a keystone user object """
         return self.client.users.list(name=username)
 
-    def enable_project(self, project_id):
+    def enable_project(self, project):
         logging.info("* Enabling project {}.".format(project_id))
-        self.tenant_info = self.client.projects.update(self.project, enabled=True)
+        self.tenant_info = self.client.projects.update(project, enabled=True)
 
-    def disable_project(self, project_id):
-        Logging.info("* Disabling project {}.".format(project_id))
-        self.tenant_info = self.client.projects.update(self.project, enabled=False)
+    def disable_project(self, project):
+        Logging.info("* Disabling project {}.".format(project))
+        self.tenant_info = self.client.projects.update(project, enabled=False)
 
     def get_admin_role_id(self):
         if not self.admin_role:
             roles = self.client.roles.list()
             # Keystone V3 works better when passing the entire object.
             self.admin_role = filter(lambda x: x.name == "admin", roles)[0]
-            # Keeping for backwards compatability
-            self.admin_role_id = self.admin_role.id
 
         return self.admin_role
 
@@ -751,10 +743,10 @@ class KeystoneManager(object):
     def undo_become_project_admin(self, project):
         user = self.get_user(self.username)[0]
         admin_role = self.get_admin_role_id()
-        logging.info("* Removing role admin to user {} on project {}.".format(
+        logging.info("* Removing role admin To user {} on project {}.".format(
             user, project.id))
 
-        return self.client.roles.revoke(user_id, admin_role_id, project_id)
+        return self.client.roles.revoke(admin_role, user, project=project)
 
     def delete_project(self, project):
         logging.info("* Deleting project {}.".format(project.id))
@@ -933,8 +925,7 @@ def main():
     try:
         action = "dump" if args.dry_run else "purge"
         perform_on_project(args.username, args.password, cleanup_project_id,
-                           args.auth_url, args.endpoint_type, args.region_name,
-                           action, args.insecure)
+                           args.auth_url, action, args.insecure)
     except requests.exceptions.ConnectionError as exc:
         print("Connection error: {}".format(str(exc)))
         sys.exit(CONNECTION_ERROR_CODE)
