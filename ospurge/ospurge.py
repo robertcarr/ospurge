@@ -1,4 +1,4 @@
-!/usr/bin/env python
+#!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 #
 # This software is released under the MIT License.
@@ -40,12 +40,14 @@ import heatclient.openstack.common.apiclient.exceptions
 from keystoneclient.apiclient import exceptions as api_exceptions
 import keystoneclient.openstack.common.apiclient.exceptions
 from keystoneclient.v3 import client as keystone_client
+from keystoneclient.auth.identity import keystone_v3
+from keystoneclient import session as keystone_session
 import neutronclient.common.exceptions
 from neutronclient.v2_0 import client as neutron_client
 import novaclient.exceptions
 from novaclient.v1_1 import client as nova_client
 import requests
-from swiftclient import client as swift_client
+#from swiftclient import client as swift_client
 
 RETRIES = 10  # Retry a delete operation 10 times before exiting
 TIMEOUT = 5   # 5 seconds timeout between retries
@@ -154,9 +156,24 @@ class Session(object):
 
     def __init__(self, username, password, project_id, auth_url,
                  endpoint_type="publicURL", region_name=None, insecure=False, **kwargs):
-        client = keystone_client.Client(
-            username=username, password=password,
-            auth_url=auth_url, region_name=region_name, insecure=insecure, **kwargs)
+        self.domain_name = kwargs.get('domain_name', None)
+        self.user_domain_name = kwargs.get('user_domain_name', None)
+        self.project_name = kwargs.get('project_name', None)
+        self.verify = kwargs.get('verify', insecure)
+
+        # Let's assume Keystone v3 auth if domain_name is present
+        if self.domain_name:
+            auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
+            sess = keystone_session.Session(auth=auth, verify=False)
+            client = keystone_client.Client(session=sess)
+            self.session = sess
+            self.token = sess.get_token()
+
+        else:
+            client = keystone_client.Client(
+                username=username, password=password,
+                auth_url=auth_url, region_name=region_name, insecure=insecure, **kwargs)
+            self.token = client.auth_token
         # Storing username, password, project_id and auth_url for
         # use by clients libraries that cannot use an existing token.
         self.username = username
@@ -165,11 +182,8 @@ class Session(object):
         self.auth_url = auth_url
         self.region_name = region_name
         self.insecure = insecure
-        self.domain_name = kwargs.get('domain_name', None)
-        self.user_domain_name = kwargs.get('user_domain_name', None)
 
         # Session variables to be used by clients when possible
-        self.token = client.auth_token
         self.user_id = client.user_id
         self.project_name = client.project_name
         self.endpoint_type = endpoint_type
@@ -657,11 +671,25 @@ class KeystoneManager(object):
     """Manages Keystone queries."""
 
     def __init__(self, username, password, auth_url, insecure, **kwargs):
-        self.client = keystone_client.Client(
-            username=username, password=password, auth_url=auth_url,
-            insecure=insecure, **kwargs)
-        self.admin_role_id = None
-        self.tenant_info = None
+        self.domain_name = kwargs.get('domain_name', None)
+        self.user_domain_name = kwargs.get('user_domain_name', None)
+        self.project_name = kwargs.get('project_name', None)
+        self.verify = kwargs.get('verify', insecure)
+
+        # Let's assume Keystone v3 auth if domain_name is present
+        if self.domain_name:
+            auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
+            sess = keystone_session.Session(auth=auth, verify=False)
+            client = keystone_client.Client(session=sess)
+            self.session = sess
+            self.token = sess.get_token()
+
+        else:
+            self.client = keystone_client.Client(
+                username=username, password=password, auth_url=auth_url,
+                insecure=insecure, **kwargs)
+            self.admin_role_id = None
+            self.tenant_info = None
 
     def get_project_id(self, project_name_or_id=None):
         """Get a project by its id
