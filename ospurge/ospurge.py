@@ -88,22 +88,22 @@ NOT_AUTHORIZED = 6
 
 RESOURCES_CLASSES = [#'CinderSnapshots',
                      #'CinderBackups',
-                     'NovaServers'
-#                     'NeutronFloatingIps',
-#                     'NeutronFireWall',
-#                     'NeutronFireWallPolicy',
-#                     'NeutronFireWallRule',
-#                     'NeutronLbMembers',
-#                     'NeutronLbVip',
-#                     'NeutronLbHealthMonitor',
-#                     'NeutronLbPool',
-#                     'NeutronMeteringLabel',
-#                     'NeutronInterfaces',
-#                     'NeutronRouters',
-#                     'NeutronPorts',
-#                     'NeutronNetworks',
-#                     'NeutronSecgroups',
-#                     'GlanceImages',
+                     'NovaServers',
+                     'NeutronFloatingIps',
+                     'NeutronFireWall',
+                     'NeutronFireWallPolicy',
+                     'NeutronFireWallRule',
+                     'NeutronLbMembers',
+                     'NeutronLbVip',
+                     'NeutronLbHealthMonitor',
+                     'NeutronLbPool',
+                     'NeutronMeteringLabel',
+                     'NeutronInterfaces',
+                     'NeutronRouters',
+                     'NeutronPorts',
+                     'NeutronNetworks',
+                     'NeutronSecgroups',
+                     'GlanceImages',
 #                     'SwiftObjects',
 #                     'SwiftContainers',
 #                     'CinderVolumes',
@@ -160,10 +160,12 @@ class Session(object):
         self.user_domain_name = kwargs.get('user_domain_name', None)
         self.project_name = kwargs.get('project_name', None)
         self.verify = kwargs.get('verify', insecure)
+        self.endpoint_type = 'PublicURL'
 
         auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
         sess = keystone_session.Session(auth=auth, verify=insecure)
         client = keystone_client.Client(session=sess)
+        self.client = client
         self.session = sess
         self.token = sess.get_token()
 
@@ -178,11 +180,11 @@ class Session(object):
         # Session variables to be used by clients when possible
         self.user_id = client.user_id
         self.project_name = client.project_name
-        self.catalog = client.endpoints.list()
+        self.catalog = client.services.list()
 
     def get_endpoint(self, service_type):
         try:
-            return self.catalog[service_type][0][self.endpoint_type]
+            return self.client.services.list(name=service_type)[0].links['self']
         except (KeyError, IndexError):
             # Endpoint could not be found
             raise EndpointNotFound(service_type)
@@ -327,11 +329,12 @@ class NeutronResources(Resources):
 
     def __init__(self, session):
         super(NeutronResources, self).__init__(session)
-        self.client = neutron_client.Client(
-            username=session.username, password=session.password,
-            tenant_id=session.project_id, auth_url=session.auth_url,
-            endpoint_type=session.endpoint_type,
-            region_name=session.region_name, insecure=session.insecure)
+        self.client = neutron_client.Client(session=session.session)
+        #self.client = neutron_client.Client(
+        #    username=session.username, password=session.password,
+        #    tenant_id=session.project_id, auth_url=session.auth_url,
+        #    endpoint_type=session.endpoint_type,
+        #    region_name=session.region_name, insecure=session.insecure)
         self.project_id = session.project_id
 
     # This method is used for routers and interfaces removal
@@ -575,8 +578,7 @@ class NovaServers(Resources):
     """Manage nova resources"""
 
     def list(self):
-        return self.client.flavors.list()
-        #return self.client.servers.list()
+        return self.client.servers.list()
 
     def delete(self, server):
         super(NovaServers, self).delete(server)
