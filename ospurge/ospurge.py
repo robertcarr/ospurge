@@ -86,29 +86,30 @@ NOT_AUTHORIZED = 6
 # dependencies, and tries to minimize the overall time duration of the
 # purge operation.
 
-RESOURCES_CLASSES = ['CinderSnapshots',
-                     'CinderBackups',
-                     'NovaServers',
-                     'NeutronFloatingIps',
-                     'NeutronFireWall',
-                     'NeutronFireWallPolicy',
-                     'NeutronFireWallRule',
-                     'NeutronLbMembers',
-                     'NeutronLbVip',
-                     'NeutronLbHealthMonitor',
-                     'NeutronLbPool',
-                     'NeutronMeteringLabel',
-                     'NeutronInterfaces',
-                     'NeutronRouters',
-                     'NeutronPorts',
-                     'NeutronNetworks',
-                     'NeutronSecgroups',
-                     'GlanceImages',
-                     'SwiftObjects',
-                     'SwiftContainers',
-                     'CinderVolumes',
-                     'CeilometerAlarms',
-                     'HeatStacks']
+RESOURCES_CLASSES = [#'CinderSnapshots',
+                     #'CinderBackups',
+                     'NovaServers'
+#                     'NeutronFloatingIps',
+#                     'NeutronFireWall',
+#                     'NeutronFireWallPolicy',
+#                     'NeutronFireWallRule',
+#                     'NeutronLbMembers',
+#                     'NeutronLbVip',
+#                     'NeutronLbHealthMonitor',
+#                     'NeutronLbPool',
+#                     'NeutronMeteringLabel',
+#                     'NeutronInterfaces',
+#                     'NeutronRouters',
+#                     'NeutronPorts',
+#                     'NeutronNetworks',
+#                     'NeutronSecgroups',
+#                     'GlanceImages',
+#                     'SwiftObjects',
+#                     'SwiftContainers',
+#                     'CinderVolumes',
+#                     'CeilometerAlarms',
+#                     'HeatStacks']
+]
 
 
 # Decorators
@@ -154,41 +155,30 @@ class Session(object):
     * self.catalog - Allowing to retrieve services' endpoints.
     """
 
-    def __init__(self, username, password, project_id, auth_url,
-                 endpoint_type="publicURL", region_name=None, insecure=False, **kwargs):
+    def __init__(self, username, password, project_id, auth_url, insecure=False, **kwargs):
         self.domain_name = kwargs.get('domain_name', None)
         self.user_domain_name = kwargs.get('user_domain_name', None)
         self.project_name = kwargs.get('project_name', None)
         self.verify = kwargs.get('verify', insecure)
 
-        # Let's assume Keystone v3 auth if domain_name is present
-        if self.domain_name:
-	    del kwargs['region_name']
-            auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
-            sess = keystone_session.Session(auth=auth, verify=False)
-            client = keystone_client.Client(session=sess)
-            self.session = sess
-            self.token = sess.get_token()
+        auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
+        sess = keystone_session.Session(auth=auth, verify=insecure)
+        client = keystone_client.Client(session=sess)
+        self.session = sess
+        self.token = sess.get_token()
 
-        else:
-            client = keystone_client.Client(
-                username=username, password=password,
-                auth_url=auth_url, region_name=region_name, insecure=insecure, **kwargs)
-            self.token = client.auth_token
         # Storing username, password, project_id and auth_url for
         # use by clients libraries that cannot use an existing token.
         self.username = username
         self.password = password
         self.project_id = project_id
         self.auth_url = auth_url
-        self.region_name = region_name
         self.insecure = insecure
 
         # Session variables to be used by clients when possible
         self.user_id = client.user_id
         self.project_name = client.project_name
-        self.endpoint_type = endpoint_type
-        self.catalog = client.service_catalog.get_endpoints()
+        self.catalog = client.endpoints.list()
 
     def get_endpoint(self, service_type):
         try:
@@ -576,17 +566,23 @@ class NovaServers(Resources):
 
     def __init__(self, session):
         super(NovaServers, self).__init__(session)
-        self.client = nova_client.Client(
-            session.username, session.password,
-            session.project_name, auth_url=session.auth_url,
-            endpoint_type=session.endpoint_type,
-            region_name=session.region_name, insecure=session.insecure)
+        nova_session = session(session.username, session.password, project='test',
+                                     user_domain_name='default', project_domain_name='default',
+                                     project_name='admin', auth_url='https://keystone:35357/v3', insecure=True)
+
+        self.client = nova_client.Client(session=nova_session.session)
+        #self.client = nova_client.Client(
+        #    session.username, session.password,
+        #    session.project_name, auth_url=session.auth_url,
+        #    endpoint_type=session.endpoint_type,
+        #    region_name=session.region_name, insecure=session.insecure)
         self.project_id = session.project_id
 
     """Manage nova resources"""
 
     def list(self):
-        return self.client.servers.list()
+        return self.client.flavors.list()
+        #return self.client.servers.list()
 
     def delete(self, server):
         super(NovaServers, self).delete(server)
@@ -651,7 +647,7 @@ class CeilometerAlarms(Resources):
         self.client = ceilometer_client.Client(
             endpoint=session.get_endpoint("metering"),
             token=get_token, insecure=session.insecure)
-        self.project_id = session.project_id
+        Self.project_id = session.project_id
 
     def list(self):
         query = [{'field': 'project_id',
@@ -678,20 +674,11 @@ class KeystoneManager(object):
         self.verify = kwargs.get('verify', insecure)
         self.username = username
 
-        # Let's assume Keystone v3 auth if domain_name is present
-        if self.domain_name:
-    	    del kwargs['region_name']
-            auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
-            sess = keystone_session.Session(auth=auth, verify=False)
-            self.client = keystone_client.Client(session=sess)
-            self.session = sess
-            self.token = sess.get_token()
-            self.keystone_version = 3
-        else:
-            self.client = keystone_client.Client(
-                username=username, password=password, auth_url=auth_url,
-                insecure=insecure, **kwargs)
-            self.keystone_version = 2
+        auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
+        sess = keystone_session.Session(auth=auth, verify=False)
+        self.client = keystone_client.Client(session=sess)
+        self.session = sess
+
         self.admin_role = None
         self.project = None
         self.user = None
@@ -707,7 +694,8 @@ class KeystoneManager(object):
         """
 
         if project_name_or_id is None:
-            return self.client.project_id
+            return self.get_user(self.username)[0].default_project_id
+            #return self.client.project_id
 
         try:
             # Save matching project object 
@@ -753,20 +741,15 @@ class KeystoneManager(object):
         return self.admin_role
 
     def become_project_admin(self, project):
-        user = self.get_user('demo')
+        user = self.get_user('admin')[0]
         admin_role = self.get_admin_role_id()
         logging.info("* Granting role admin to user {} on project {}.".format(
-            user, project.id))
+            user.name, project.name))
 
-        print "PROJECT: {}".format(project)
-        print "ADMIN_role: {}".format(admin_role)
-        print "USER: {}".format(user)
-        # TODO: Figure out why this can't find project 
-        return True
         return self.client.roles.grant(admin_role, user, project=project)
 
     def undo_become_project_admin(self, project):
-        user = self.get_user(self.username)
+        user = self.get_user(self.username)[0]
         admin_role = self.get_admin_role_id()
         logging.info("* Removing role admin to user {} on project {}.".format(
             user, project.id))
@@ -779,14 +762,13 @@ class KeystoneManager(object):
 
 
 def perform_on_project(admin_name, password, project, auth_url,
-                       endpoint_type='publicURL', region_name=None,
-                       action='dump', insecure=False):
+                      action='dump', insecure=False, **kwargs):
     """Perform provided action on all resources of project.
 
     action can be: 'purge' or 'dump'
     """
-    session = Session(admin_name, password, project, auth_url,
-                      endpoint_type, region_name, insecure)
+    session = Session(admin_name, password, project, auth_url, insecure, domain_name='default', user_domain_name='default')
+
     error = None
     for rc in RESOURCES_CLASSES:
         try:
@@ -914,8 +896,7 @@ def main():
 
     try:
         keystone_manager = KeystoneManager(args.username, args.password,
-                                           args.auth_url, args.insecure, region_name=args.region_name,
-                                           domain_name=args.domain_name, user_domain_name=args.user_domain_name)
+                                           args.auth_url, args.insecure, domain_name=args.domain_name, user_domain_name=args.user_domain_name)
     except api_exceptions.Unauthorized as exc:
         print("Authentication failed: {}".format(str(exc)))
         sys.exit(AUTHENTICATION_FAILED_ERROR_CODE)
