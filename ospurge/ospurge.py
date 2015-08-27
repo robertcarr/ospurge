@@ -30,7 +30,7 @@ import sys
 import time
 
 import ceilometerclient.exc
-from ceilometerclient.v2 import client as ceilometer_client
+from ceilometerclient import client as ceilometer_client
 import cinderclient.exceptions
 from cinderclient.v1 import client as cinder_client
 import glanceclient.exc
@@ -50,7 +50,7 @@ import requests
 #from swiftclient import client as swift_client
 
 RETRIES = 10  # Retry a delete operation 10 times before exiting
-TIMEOUT = 5   # 5 seconds timeout between retries
+timeout = 5   # 5 seconds timeout between retries
 
 
 class ResourceNotEnabled(Exception):
@@ -103,12 +103,12 @@ RESOURCES_CLASSES = [#'CinderSnapshots',
                      'NeutronPorts',
                      'NeutronNetworks',
                      'NeutronSecgroups',
-                     'GlanceImages',
+#                     'GlanceImages',
 #                     'SwiftObjects',
 #                     'SwiftContainers',
 #                     'CinderVolumes',
-#                     'CeilometerAlarms',
-#                     'HeatStacks']
+                     'CeilometerAlarms',
+                     'HeatStacks'
 ]
 
 
@@ -184,7 +184,7 @@ class Session(object):
 
     def get_endpoint(self, service_type):
         try:
-            return self.client.services.list(name=service_type)[0].links['self']
+            return self.client.services.list(type=service_type)[0].links['self']
         except (KeyError, IndexError):
             # Endpoint could not be found
             raise EndpointNotFound(service_type)
@@ -278,11 +278,12 @@ class CinderResources(Resources):
         super(CinderResources, self).__init__(session)
         # Cinder client library can't use an existing token. When
         # using this library, we have to reauthenticate.
-        self.client = cinder_client.Client(
-            session.username, session.password,
-            session.project_name, session.auth_url, session.insecure,
-            endpoint_type=session.endpoint_type,
-            region_name=session.region_name)
+        self.client = cinder_client.Client('2', session=session.session)
+#        self.client = cinder_client.Client(
+#            session.username, session.password,
+#            session.project_name, session.auth_url, session.insecure,
+#            endpoint_type=session.endpoint_type,
+#            region_name=session.region_name)
 
 
 class CinderSnapshots(CinderResources):
@@ -617,6 +618,7 @@ class HeatStacks(Resources):
         self.client = heat_client.Client(
             "1",
             endpoint=session.get_endpoint("orchestration"),
+            project_name='admin',
             token=session.token, insecure=session.insecure)
         self.project_id = session.project_id
 
@@ -640,10 +642,11 @@ class CeilometerAlarms(Resources):
         # Ceilometer Client needs a method that returns the token
         def get_token():
             return session.token
-        self.client = ceilometer_client.Client(
-            endpoint=session.get_endpoint("metering"),
-            token=get_token, insecure=session.insecure)
-        Self.project_id = session.project_id
+        self.client = ceilometer_client.get_client('2',
+            os_username=session.username, os_password=session.password,
+            os_user_domain_name=session.domain_name, os_tenant_name='admin',
+            os_auth_url=session.auth_url)
+        self.project_id = session.project_id
 
     def list(self):
         query = [{'field': 'project_id',
