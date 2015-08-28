@@ -58,7 +58,7 @@ class TestStuff(unittest.TestCase):
         sess = Session(cfg['username'], cfg['password'], cfg['project'], cfg['endpoint'],
                        cfg['insecure'], user_domain_name=cfg['user_domain_name'])
         glance = ospurge.glance_client.Client('1', session=sess.session)
-        self.assertIsInstance(glance.images.list(), list)
+        self.assertTrue(glance.images.list())
         
 if __name__ == '__main__':
     unittest.main()

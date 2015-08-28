@@ -647,7 +647,8 @@ class CeilometerAlarms(Resources):
             return session.token
         self.client = ceilometer_client.get_client('2',
             os_username=session.username, os_password=session.password,
-            os_user_domain_name=session.domain_name, os_tenant_name='admin',
+            os_user_domain_name=session.domain_name,
+            os_tenant_name=session.project_name,
             os_auth_url=session.auth_url)
         self.project_id = session.project_id
 
