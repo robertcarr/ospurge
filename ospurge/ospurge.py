@@ -43,7 +43,7 @@ from keystoneclient.v3 import client as keystone_client
 from keystoneclient.auth.identity import v3 as keystone_v3
 from keystoneclient import session as keystone_session
 import neutronclient.common.exceptions
-from neutronclient.v2_0 import client as neutron_client
+from neutronclient.neutron import client as neutron_client
 import novaclient.exceptions
 from novaclient.v1_1 import client as nova_client
 import requests
@@ -159,8 +159,10 @@ class Session(object):
         self.domain_name = kwargs.get('domain_name', None)
         self.user_domain_name = kwargs.get('user_domain_name', None)
         self.project_name = kwargs.get('project_name', None)
+        self.project_domain_name = kwargs.get('project_domain_name', None)
         self.verify = kwargs.get('verify', insecure)
         self.endpoint_type = 'PublicURL'
+        self.interface = kwargs.get('interface', 'public')
 
         auth = keystone_v3.Password(auth_url=auth_url, username=username, password=password, **kwargs)
         sess = keystone_session.Session(auth=auth, verify=insecure)
@@ -184,7 +186,8 @@ class Session(object):
 
     def get_endpoint(self, service_type):
         try:
-            return self.client.services.list(type=service_type)[0].links['self']
+            service_id = self.client.services.list(type=service_type)[0].id
+            return self.client.endpoints.list(service_id, interface=self.interface)[0].url
         except (KeyError, IndexError):
             # Endpoint could not be found
             raise EndpointNotFound(service_type)
